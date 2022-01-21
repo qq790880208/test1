@@ -1,13 +1,24 @@
 <script lang="ts" setup>
-import _  from "lodash";
-import { computed, onMounted, reactive } from 'vue';
+import _ from "lodash";
+import { useRouter } from "vue-router";
+import anime, { AnimeInstance } from "animejs";
+import lottie, { AnimationItem } from "lottie-web";
+import { ref, computed, onMounted, reactive, watch } from 'vue';
+import Logo from "@/json/loginLogoAnimation.json";
 import { mockPromise } from "@/utils/main";
+import { login } from "@/api/auth-request";
 
 interface tips {
   sTipTitle: string;
   sTipContent: string;
   sOpenUrl: string
 }
+
+interface extraLottie extends AnimationItem {
+  finished?: Promise<void>
+}
+
+const rLoginLoading = ref({});
 
 const state = reactive({
   isLoginShow: true,
@@ -55,16 +66,39 @@ const handleCloseTips = () => {
   state.isLoginShow = true;
 }
 
+const { push } = useRouter();
+
 const handleSubmitBtnClick = async () => {
   if (!state.isLoginLoading) {
     state.isLoginLoading = true;
     const resp = await mockPromise();
     const isSuccess = _.get(resp, "success", false);
-    if(isSuccess) {
-    }else {
+    if (isSuccess) {
+      await playLogoAnimation();
+      push("/Home")
+    } else {
       state.isLoginLoading = false;
     }
   }
+}
+
+function isExtraLottie(animationType: AnimeInstance | extraLottie): animationType is extraLottie {
+    return (<extraLottie>animationType).goToAndPlay !== undefined;
+}
+
+const playLogoAnimation = async () => {
+  let allAnimation: Array<extraLottie | AnimeInstance> = animeLogo ? [animeLogo] : [];
+  allAnimation = allAnimation.concat(animeLoginSucc);
+  return Promise.all(
+    allAnimation.map(animation => {
+      isExtraLottie(animation) ? animation.goToAndPlay(5, true) : animation.play()
+      return animation.finished;
+    })
+  );
+}
+
+const handleOpenUrl = () => {
+  window.open(state.oTips.sOpenUrl);
 }
 
 const handleTipsShow = (sTipsInfo: tips) => {
@@ -73,9 +107,99 @@ const handleTipsShow = (sTipsInfo: tips) => {
   state.isLoginShow = false;
 }
 
+let animeLogo: extraLottie | null, animeLoading: AnimeInstance, animeLoginSucc: Array<AnimeInstance>, animeLoginFail: AnimeInstance;
 
-onMounted( () => {
+watch(() => state.isLoginLoading, (val) => {
+  if (val) {
+    animeLoading.restart();
+  } else {
+    animeLoading.pause();
+    animeLoginFail.restart();
+  }
+})
 
+onMounted(() => {
+  const createAnimeLogo = () => {
+    const dom = document.getElementById("animeLogo");
+    if (dom) {
+      let animeLogo: extraLottie = lottie.loadAnimation({
+        container: dom, // the dom element that will contain the animation
+        renderer: "svg",
+        loop: false,
+        autoplay: false,
+        animationData: Logo // the path to the animation json
+      });
+      animeLogo.setSpeed(0.8);
+      animeLogo.goToAndStop(50, true);
+      let resolved: (value: (void | PromiseLike<void>)) => void
+      animeLogo.addEventListener("complete", () => {
+        resolved();
+        animeLogo.finished = new Promise(resolve => {
+          resolved = resolve;
+        });
+      });
+      animeLogo.finished = new Promise(resolve => {
+        resolved = resolve;
+      });
+      return animeLogo;
+    }
+    return null;
+  }
+  const createAnimeLoading = () => {
+    return anime({
+      targets: rLoginLoading.value,
+      translateX: [-480, 480],
+      loop: true,
+      autoplay: false,
+      duration: 2000,
+      easing: "cubicBezier(0.420, 0.000, 0.145, 1.000)"
+    });
+  }
+
+  const createAnimeLoginSucc = () => {
+    return [
+      anime({
+        targets: ".header-logo",
+        loop: false,
+        autoplay: false,
+        // top: [50, document.body.clientHeight / 2 - 60],
+        translateY: [50, document.body.clientHeight / 2 - 60],
+        scale: 3,
+        duration: 2500,
+        easing: "cubicBezier(0.08, 0.72, 0, 1.000)"
+      }),
+      anime({
+        targets: [".el-main", ".el-footer"],
+        loop: false,
+        autoplay: false,
+        translateY: 700,
+        opacity: 0,
+        duration: 200,
+        easing: "cubicBezier(0.420, 0.000, 0.145, 1.000)"
+      })
+    ];
+  }
+  const createAnimeLoginFail = () => {
+    return anime({
+      targets: ".header-logo",
+      loop: false,
+      autoplay: false,
+      keyframes: [
+        { translateX: 0, rotateY: 0 },
+        { translateX: -9, rotateY: -9 },
+        { translateX: 8, rotateY: 7 },
+        { translateX: -6, rotateY: -5 },
+        { translateX: 5, rotateY: -3 },
+        { translateX: 0, rotateY: 0 }
+      ],
+      duration: 500,
+      easing: "cubicBezier(0.42,0,0.58,1)"
+    });
+  }
+  animeLogo = createAnimeLogo();
+  animeLoading = createAnimeLoading();
+  animeLoginSucc = createAnimeLoginSucc();
+  animeLoginFail = createAnimeLoginFail();
 });
 
 
@@ -92,7 +216,7 @@ onMounted( () => {
           <el-form-item>
             <span class="form-title">欢迎，数据探索者</span>
           </el-form-item>
-          <el-form-item label="" prop="loginName">
+          <el-form-item label prop="loginName">
             <el-input
               v-model="state.oLoginForm.loginName"
               autocomplete="new-password"
@@ -101,7 +225,7 @@ onMounted( () => {
               placeholder="工号"
             />
           </el-form-item>
-          <el-form-item label="" prop="loginPassword">
+          <el-form-item label prop="loginPassword">
             <el-input
               v-model="state.oLoginForm.loginPassword"
               autocomplete="new-password"
@@ -109,8 +233,7 @@ onMounted( () => {
               placeholder="密码"
               :type="sPasswordType"
               @keyup.enter="handleSubmitBtnClick"
-            >
-            </el-input>
+            ></el-input>
           </el-form-item>
           <el-form-item>
             <el-button
@@ -119,30 +242,32 @@ onMounted( () => {
               type="primary"
               :disabled="isButtonDisabled"
               @click.prevent="handleSubmitBtnClick"
-            >
-              登录
-            </el-button>
+            >登录</el-button>
           </el-form-item>
           <div
             class="main-resetPassword"
             :class="[state.isLoginLoading ? 'is-disabled' : '']"
             @click="handleResetPassword"
-          >
-            忘记密码
-          </div>
+          >忘记密码</div>
           <div v-show="state.isLoginLoading" ref="rLoginLoading" class="login-loading"></div>
         </el-form>
       </el-main>
       <el-footer height="1.2rem">
         <div class="footer-tips">
           <p></p>
-          <p class="explain">
-            使用须知：请自觉遵守《海尔集团信息安全管理规范》，勿使用他人账户登录系统，以免造成个人信息及权限泄漏！
-          </p>
+          <p class="explain">使用须知：请自觉遵守《海尔集团信息安全管理规范》，勿使用他人账户登录系统，以免造成个人信息及权限泄漏！</p>
           <p class="marginBottom"></p>
         </div>
       </el-footer>
     </el-container>
+    <video
+      autoplay
+      class="video-content"
+      loop
+      muted
+      height="100%"
+      src="https://mss.cosmoplat.com/datateller-public/video/home_page_video_1.webm"
+    />
     <el-dialog
       top="36.57vh"
       width="4.8rem"
@@ -150,22 +275,10 @@ onMounted( () => {
       :modal="false"
       @closed="handleCloseTips"
     >
-      <template v-slot:title>
-        {{ state.oTips.sTipTitle }}
-      </template>
+      <template v-slot:title>{{ state.oTips.sTipTitle }}</template>
       {{ state.oTips.sTipContent }}
       <template v-slot:footer>
-        <el-button
-          v-if="state.oTips.sOpenUrl"
-          type="primary"
-          @click="
-            () => {
-              window.open(state.oTips.sOpenUrl);
-            }
-          "
-        >
-          立即前往
-        </el-button>
+        <el-button v-if="state.oTips.sOpenUrl" type="primary" @click="handleOpenUrl">立即前往</el-button>
       </template>
     </el-dialog>
   </div>
@@ -182,11 +295,14 @@ onMounted( () => {
   left: 0;
   bottom: 0;
   right: 0;
+  overflow: hidden;
+
   .el-button {
     border: none;
     background: #0474ff;
     font-size: 0.16rem;
     line-height: 0.3rem;
+    height: 100%;
     width: 100%;
 
     &:active {
@@ -231,8 +347,10 @@ onMounted( () => {
       padding: 0.5rem 0.32rem 0 0.32rem;
       text-align: center;
       background: hsla(0, 0%, 100%, 0.6);
-      box-shadow: 0 0.3rem 0.6rem 0 rgba(0, 19, 43, 0.01), 0 0.37rem 0.4rem 0 rgba(0, 25, 64, 0.02),
-      0 0.1rem 0.3rem 0 rgba(0, 12, 48, 0.09), 0 0 0 0.01rem rgba(255, 255, 255, 0.5) inset;
+      box-shadow: 0 0.3rem 0.6rem 0 rgba(0, 19, 43, 0.01),
+        0 0.37rem 0.4rem 0 rgba(0, 25, 64, 0.02),
+        0 0.1rem 0.3rem 0 rgba(0, 12, 48, 0.09),
+        0 0 0 0.01rem rgba(255, 255, 255, 0.5) inset;
       border-radius: 0.04rem;
       backdrop-filter: blur(0.1rem);
 
@@ -364,44 +482,52 @@ onMounted( () => {
     }
   }
 
-  .el-dialog__wrapper {
-    position: absolute;
+  .video-content {
+    position: fixed;
+    width: 100%;
+    height: 100%;
+    top: 0;
+    left: 0;
+    object-fit: cover;
+    z-index: -1;
+  }
 
-    .el-dialog {
-      padding: 0.5rem 0.32rem;
-      background: hsla(0, 0%, 100%, 0.6);
-      box-shadow: 0 0.3rem 0.6rem 0 rgba(0, 19, 43, 0.01), 0 0.37rem 0.4rem 0 rgba(0, 25, 64, 0.02),
+  .el-dialog {
+    padding: 0.5rem 0.32rem;
+    background: hsla(0, 0%, 100%, 0.6);
+    box-shadow: 0 0.3rem 0.6rem 0 rgba(0, 19, 43, 0.01),
+      0 0.37rem 0.4rem 0 rgba(0, 25, 64, 0.02),
       0 0.1rem 0.3rem 0 rgba(0, 12, 48, 0.09);
-      border-radius: 0.04rem;
-      border: 1px solid rgba(255, 255, 255, 0.5);
-      backdrop-filter: blur(0.1rem);
+    border-radius: 0.04rem;
+    border: 1px solid rgba(255, 255, 255, 0.5);
+    backdrop-filter: blur(0.1rem);
 
-      .el-dialog__header {
-        height: 0.4rem;
-        margin: 0;
-        padding: 0;
-        font-size: 0.28rem;
-        color: #333333;
-        justify-content: space-between;
+    .el-dialog__header {
+      height: 0.4rem;
+      margin: 0;
+      padding: 0;
+      font-size: 0.28rem;
+      color: #333333;
+      justify-content: space-between;
 
-        .el-dialog__headerbtn {
-          position: static;
-        }
+      .el-dialog__headerbtn {
+        position: static;
       }
+    }
 
-      .el-dialog__body {
-        padding: 0.4rem 0;
-        line-height: 0.2rem;
-      }
+    .el-dialog__body {
+      padding: 0.4rem 0;
+      line-height: 0.2rem;
+    }
 
-      .el-dialog__footer {
-        padding: 0;
-      }
+    .el-dialog__footer {
+      padding: 0;
     }
   }
 }
 
-@media only screen and (max-height: 768px), only screen and (max-width: 1366px) {
+@media only screen and (max-height: 768px),
+  only screen and (max-width: 1366px) {
   #login {
     .el-main {
       .el-form {
